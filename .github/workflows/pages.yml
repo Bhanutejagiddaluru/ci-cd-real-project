@@ -13,16 +13,12 @@ name: Deploy to GitHub Pages with Linting
 on:  # This section decides WHEN this workflow will run.
   push:  # "push" means when we push (upload) new commits to GitHub.
     branches: [ main ]  # Only run when changes are pushed to the "main" branch.
-    paths:  # We only want to run when certain important files change.
-      - "index.html"          # If index.html changes, run the workflow.
-      - "assets/css/style.css"  # If our main CSS file changes, run the workflow.
-      - "assets/js/script.js"   # If our main JavaScript file changes, run the workflow.
-
-      # TIP: If we want the workflow to run when ANY file changes,
-      # we can uncomment these two lines:
-      # paths:
-      #   - "**"   # "**" means "all files everywhere inside this project."
-
+    paths:  # Run only when the site files change (they live under /main).
+      - "main/index.html"
+      - "main/assets/css/**/*.css"
+      - "main/assets/js/**/*.js"
+      # TIP: to run on ANY file change, use:
+      # - "**"
   workflow_dispatch:  # This lets us run the workflow manually from the Actions tab.
 
 
@@ -32,7 +28,7 @@ on:  # This section decides WHEN this workflow will run.
 permissions:  # This defines what GitHub Actions can do in our repo.
   contents: read   # Can read the code/content from the repo.
   pages: write     # Can publish (write) to GitHub Pages.
-  id-token: write  # Can create an ID token for secure deployment.
+  id-token: write  # Can create an ID token for secure deployment (OIDC).
 
 
 # ----------------------------------------------------
@@ -46,7 +42,7 @@ concurrency:  # Prevents multiple runs at the same time (avoids conflicts).
 # ----------------------------------------------------
 # JOBS TO RUN (Steps in CI/CD pipeline)
 # ----------------------------------------------------
-jobs:  # This section contains all the jobs (tasks) the workflow will do.
+jobs:
 
   # --------------------------------------------------
   # JOB 1: LINT (Code Review / Quality Checks)
@@ -69,14 +65,14 @@ jobs:  # This section contains all the jobs (tasks) the workflow will do.
         # - ESLint → checks JS for errors.
 
       - name: Lint HTML
-        run: htmlhint index.html  # Check HTML code for errors.
+        run: htmlhint main/index.html  # Check HTML code for errors.
 
       - name: Lint CSS (with auto-fix)
-        run: stylelint "assets/css/**/*.css" --fix
+        run: stylelint "main/assets/css/**/*.css" --fix
         # Check CSS files. The --fix option automatically fixes minor issues.
 
       - name: Lint JS (with auto-fix)
-        run: eslint "assets/js/**/*.js" --fix
+        run: eslint "main/assets/js/**/*.js" --fix
         # Check JavaScript files. The --fix option auto-fixes simple issues.
 
 
@@ -88,9 +84,16 @@ jobs:  # This section contains all the jobs (tasks) the workflow will do.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4  # Step 1: Download repo code again.
-      - uses: actions/upload-pages-artifact@v3
+
+      - name: Configure Pages (enable if needed)
+        uses: actions/configure-pages@v5
         with:
-          path: .  # Step 2: Upload all files as an "artifact" for deployment.
+          enablement: true   # If Pages isn't enabled yet, this will enable it.
+
+      - name: Upload site artifact (the static site to publish)
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./main  # Publish the contents of the /main folder (index.html + assets)
 
 
   # --------------------------------------------------
@@ -105,5 +108,5 @@ jobs:  # This section contains all the jobs (tasks) the workflow will do.
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
-        # This step deploys the site artifact to GitHub Pages.
+        # This step deploys the uploaded artifact to GitHub Pages.
         # After success, your site will be live at the configured URL.
