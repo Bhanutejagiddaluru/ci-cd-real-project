@@ -200,6 +200,15 @@ npx stylelint "main/assets/css/**/*.css"
 
 ---
 
+
+# HOST the page first 
+
+<img width="728" height="882" alt="image" src="https://github.com/user-attachments/assets/c888cdf2-11c6-454b-a1df-8602b7da4cb4" />
+
+Settings --> pages --> Build and deployment --> keep Github Actions.
+
+Then only every thing works
+
 ## FAQ
 
 **Q: My Pages site is 404.**  
