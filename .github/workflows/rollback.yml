@@ -1,0 +1,91 @@
+name: Rollback index.html
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_index:
+        description: "0 = latest, 1 = previous, 2 = two versions back, etc."
+        required: false
+        default: "0"
+
+permissions:
+  contents: write   # commit restored index.html back to main
+  actions: read     # read artifacts/download URL
+
+env:
+  TARGET_BRANCH: main
+  ARTIFACT_PREFIX: site-index-
+
+jobs:
+  rollback-index:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+
+      - name: Pick artifact by index
+        id: pick
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo  = context.repo.repo;
+
+            const artifacts = (await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              { owner, repo, per_page: 100 }
+            ))
+              .filter(a => a.name && a.name.startsWith(process.env.ARTIFACT_PREFIX))
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            if (!artifacts.length) {
+              core.setFailed('No index artifacts found.');
+              return;
+            }
+
+            const idxStr = core.getInput('version_index') || '0';
+            const idx = Number(idxStr);
+            if (Number.isNaN(idx) || idx < 0 || idx >= artifacts.length) {
+              core.setFailed(`Invalid version_index=${idxStr}. Available artifacts: ${artifacts.length}`);
+              return;
+            }
+
+            const chosen = artifacts[idx];
+            core.info(`Chosen artifact: ${chosen.name} (id=${chosen.id}) created_at=${chosen.created_at}`);
+
+            const { data } = await github.rest.actions.downloadArtifact({
+              owner,
+              repo,
+              artifact_id: chosen.id,
+              archive_format: 'zip'
+            });
+
+            core.setOutput('artifact_name', chosen.name);
+            core.setOutput('download_url', data.url);
+
+      - name: Download chosen artifact
+        run: |
+          set -e
+          curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "${{ steps.pick.outputs.download_url }}" \
+            -o index_artifact.zip
+          unzip -o index_artifact.zip -d restored_index
+          test -f restored_index/index.html || (echo "index.html not found in artifact" && exit 1)
+
+      - name: Restore index.html and commit
+        run: |
+          set -e
+          cp restored_index/index.html index.html
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "Rollback: restore index.html from ${{ steps.pick.outputs.artifact_name }}"
+          git push origin ${{ env.TARGET_BRANCH }}
+
+      - name: Note
+        run: |
+          echo "Rollback committed to '${{ env.TARGET_BRANCH }}'."
+          echo "Your Deploy workflow will run and publish the restored index.html."

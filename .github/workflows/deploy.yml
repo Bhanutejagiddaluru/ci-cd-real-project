@@ -1,0 +1,78 @@
+name: Deploy (Pages) + Save Index Artifact
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write      # allow committing/tags/releases if needed later
+  pages: write         # required for Pages deploy
+  id-token: write      # OIDC for Pages
+  actions: write       # needed to delete old artifacts
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # If you have a build step, put it here.
+      # - name: Build
+      #   run: |
+      #     npm ci
+      #     npm run build
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      # Change "path" if you build to a folder (e.g., dist/)
+      - name: Upload site for Pages deploy
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      # ----- Save ONLY index.html as an artifact -----
+      - name: Upload index.html artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-index-${{ github.run_number }}
+          path: index.html
+          if-no-files-found: error
+          # You cannot exceed 90; choose a short value to keep things tidy
+          retention-days: 30
+
+      # ----- Keep only latest 4 artifacts; delete older ones -----
+      - name: Prune old index artifacts (keep newest 4)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo  = context.repo.repo;
+
+            const all = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              { owner, repo, per_page: 100 }
+            );
+
+            const mine = all
+              .filter(a => a.name && a.name.startsWith('site-index-'))
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            const toDelete = mine.slice(4); // keep 4 newest
+            for (const art of toDelete) {
+              core.info(`Deleting old artifact: ${art.name} (id=${art.id})`);
+              await github.rest.actions.deleteArtifact({
+                owner, repo, artifact_id: art.id
+              });
+            }

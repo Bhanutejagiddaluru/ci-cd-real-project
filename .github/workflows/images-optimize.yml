@@ -1,0 +1,109 @@
+# ----------------------------------------------------
+# WORKFLOW NAME
+# ----------------------------------------------------
+# Optimizes images (PNG/JPG/SVG) automatically on push and reports savings.
+name: Optimize Images
+
+# ----------------------------------------------------
+# WHEN SHOULD THIS WORKFLOW RUN?
+# ----------------------------------------------------
+on:
+  push:
+    branches: [ main ]              # run on main pushes
+    paths:                          # only when images change
+      - "assets/images/**"
+  workflow_dispatch:                # allow manual run from Actions tab
+
+# ----------------------------------------------------
+# PERMISSIONS (needs write to commit optimized files)
+# ----------------------------------------------------
+permissions:
+  contents: write                   # commit back optimized images
+
+# ----------------------------------------------------
+# JOBS TO RUN
+# ----------------------------------------------------
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1) Get repository files
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2) Setup Node (to run imagemin CLI)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 3) Install imagemin CLI + plugins
+      #    - imagemin-cli: command line tool
+      #    - mozjpeg: jpeg compression
+      #    - pngquant: png compression
+      #    - svgo: svg optimization
+      - name: Install imagemin tools
+        run: |
+          npm i -g imagemin-cli imagemin-mozjpeg imagemin-pngquant imagemin-svgo
+
+      # 4) Record total size BEFORE optimization (bytes)
+      - name: Measure size (before)
+        id: imgsize
+        run: echo "before=$(du -sb assets/images | cut -f1)" >> $GITHUB_OUTPUT
+
+      # 5) Optimize JPEG/JPG (visually safe lossy via mozjpeg)
+      - name: Optimize JPEGs
+        run: |
+          npx imagemin "assets/images/**/*.{jpg,jpeg,JPG,JPEG}" \
+            --plugin=mozjpeg \
+            --out-dir=assets/images
+
+      # 6) Optimize PNG (high-quality lossy via pngquant)
+      - name: Optimize PNGs
+        run: |
+          npx imagemin "assets/images/**/*.{png,PNG}" \
+            --plugin=pngquant \
+            --out-dir=assets/images
+
+      # 7) Optimize SVG (lossless via svgo)
+      - name: Optimize SVGs
+        run: |
+          npx imagemin "assets/images/**/*.{svg,SVG}" \
+            --plugin=svgo \
+            --out-dir=assets/images
+
+      # 8) Report savings to the run Summary + list modified files
+      - name: Report savings
+        run: |
+          before=${{ steps.imgsize.outputs.before }}
+          after=$(du -sb assets/images | cut -f1)
+          saved=$(( before - after ))
+          pct=0
+          if [ "$before" -gt 0 ]; then
+            pct=$(( 100 * saved / before ))
+          fi
+
+          echo "### Image Optimization Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Before:** ${before} bytes" >> $GITHUB_STEP_SUMMARY
+          echo "- **After:**  ${after} bytes" >> $GITHUB_STEP_SUMMARY
+          echo "- **Saved:**  ${saved} bytes (${pct}%)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Optimized files" >> $GITHUB_STEP_SUMMARY
+          # List only files that changed in the working tree
+          git ls-files -m assets/images | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY || echo "- (no file diffs detected)" >> $GITHUB_STEP_SUMMARY
+
+      # 9) Upload optimized images as a downloadable artifact (optional)
+      - name: Upload optimized images (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: optimized-images
+          path: assets/images
+
+      # 10) Auto-commit changes (only if files got smaller)
+      - name: Commit optimized images
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore(images): optimize assets"
+          file_pattern: assets/images/**

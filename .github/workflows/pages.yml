@@ -1,0 +1,109 @@
+# ----------------------------------------------------
+# WORKFLOW NAME
+# ----------------------------------------------------
+# This is the label that appears in GitHub's "Actions" tab.
+# It's just a name so you know what this workflow does.
+# It will show up in the "Actions" tab inside GitHub so we know what it does.
+name: Deploy to GitHub Pages with Linting
+
+
+# ----------------------------------------------------
+# WHEN SHOULD THIS WORKFLOW RUN?
+# ----------------------------------------------------
+on:  # This section decides WHEN this workflow will run.
+  push:  # "push" means when we push (upload) new commits to GitHub.
+    branches: [ main ]  # Only run when changes are pushed to the "main" branch.
+    paths:  # We only want to run when certain important files change.
+      - "index.html"          # If index.html changes, run the workflow.
+      - "assets/css/style.css"  # If our main CSS file changes, run the workflow.
+      - "assets/js/script.js"   # If our main JavaScript file changes, run the workflow.
+
+      # TIP: If we want the workflow to run when ANY file changes,
+      # we can uncomment these two lines:
+      # paths:
+      #   - "**"   # "**" means "all files everywhere inside this project."
+
+  workflow_dispatch:  # This lets us run the workflow manually from the Actions tab.
+
+
+# ----------------------------------------------------
+# WHAT PERMISSIONS DOES THE WORKFLOW HAVE?
+# ----------------------------------------------------
+permissions:  # This defines what GitHub Actions can do in our repo.
+  contents: read   # Can read the code/content from the repo.
+  pages: write     # Can publish (write) to GitHub Pages.
+  id-token: write  # Can create an ID token for secure deployment.
+
+
+# ----------------------------------------------------
+# HOW MANY COPIES OF THIS WORKFLOW CAN RUN?
+# ----------------------------------------------------
+concurrency:  # Prevents multiple runs at the same time (avoids conflicts).
+  group: "pages"             # Give this workflow group the name "pages".
+  cancel-in-progress: true   # If a new run starts, cancel the old one.
+
+
+# ----------------------------------------------------
+# JOBS TO RUN (Steps in CI/CD pipeline)
+# ----------------------------------------------------
+jobs:  # This section contains all the jobs (tasks) the workflow will do.
+
+  # --------------------------------------------------
+  # JOB 1: LINT (Code Review / Quality Checks)
+  # --------------------------------------------------
+  lint:
+    runs-on: ubuntu-latest  # Use the latest Ubuntu Linux runner.
+    steps:
+      - uses: actions/checkout@v4  # Step 1: Download the repo code.
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20  # Install Node.js v20 to run linting tools.
+
+      - name: Install linting tools
+        run: npm install -g htmlhint stylelint stylelint-config-standard eslint
+        # Installs:
+        # - HTMLHint → checks HTML for errors.
+        # - Stylelint → checks CSS for errors.
+        # - ESLint → checks JS for errors.
+
+      - name: Lint HTML
+        run: htmlhint index.html  # Check HTML code for errors.
+
+      - name: Lint CSS (with auto-fix)
+        run: stylelint "assets/css/**/*.css" --fix
+        # Check CSS files. The --fix option automatically fixes minor issues.
+
+      - name: Lint JS (with auto-fix)
+        run: eslint "assets/js/**/*.js" --fix
+        # Check JavaScript files. The --fix option auto-fixes simple issues.
+
+
+  # --------------------------------------------------
+  # JOB 2: BUILD (Prepare files for deployment)
+  # --------------------------------------------------
+  build:
+    needs: lint  # This job will only run if lint passes successfully.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4  # Step 1: Download repo code again.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .  # Step 2: Upload all files as an "artifact" for deployment.
+
+
+  # --------------------------------------------------
+  # JOB 3: DEPLOY (Publish site to GitHub Pages)
+  # --------------------------------------------------
+  deploy:
+    needs: build  # Only run after build finishes successfully.
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages  # Environment = GitHub Pages deployment.
+      url: ${{ steps.deployment.outputs.page_url }}  # Save live site URL.
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+        # This step deploys the site artifact to GitHub Pages.
+        # After success, your site will be live at the configured URL.
